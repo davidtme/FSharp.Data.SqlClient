@@ -138,3 +138,54 @@ let UsingTVPInQuery() =
         |> Seq.toList
 
     Assert.Equal<_ list>(expected, actual)
+
+
+type MappedTVP = 
+    SqlCommandProvider<"
+        SELECT myId, myName from @input
+    ", ConnectionStrings.AdventureWorksLiteral, TableVarMapping = "@input=dbo.MyTableType">
+[<Fact>]
+let UsingMappedTVPInQuery() = 
+    printfn "%s" ConnectionStrings.AdventureWorksLiteral
+    use cmd = new MappedTVP(ConnectionStrings.AdventureWorksLiteral)
+    let expected = [ 
+        1, Some "monkey"
+        2, Some "donkey"
+    ]
+
+    let actual =
+        cmd.Execute(input = [ for id, name in expected -> MappedTVP.MyTableType(id, name) ])
+        |> Seq.map(fun x -> x.myId, x.myName)
+        |> Seq.toList
+
+    Assert.Equal<_ list>(expected, actual)
+
+
+[<Fact>]
+let UsingTempTable() = 
+    use conn = new SqlConnection(ConnectionStrings.AdventureWorksLiteral)
+    conn.Open()
+    use create = new SqlCommand("
+        CREATE TABLE #Temp(Id INT NOT NULL, Name NVARCHAR(100) NULL); 
+        INSERT #Temp(Id, Name)
+        VALUES (1, 'monkey'),
+               (2, 'donkey')
+        ", conn)
+
+    create.ExecuteScalar() |> ignore
+
+    use cmd = new SqlCommandProvider<"
+        SELECT Id, Name from #Temp
+    ", ConnectionStrings.AdventureWorksLiteral, TempTableDefinitions = "CREATE TABLE #Temp(Id INT NOT NULL, Name NVARCHAR(100) NULL)">(conn)
+
+    let expected = [ 
+        1, Some "monkey"
+        2, Some "donkey"
+    ]
+
+    let actual =
+        cmd.Execute()
+        |> Seq.map(fun x -> x.Id, x.Name)
+        |> Seq.toList
+
+    Assert.Equal<_ list>(expected, actual)
